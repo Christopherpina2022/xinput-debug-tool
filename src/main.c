@@ -9,65 +9,66 @@
 #define XINPUT_GAMEPAD_TRIGGER_THRESHOLD 30
 #define MAGNITUDE_MAX 32767
 // User defined, range acceptable is from 0-65534
-#define INPUT_DEADZONE 255
-// range of console
-#define WIDTH 60
-#define HEIGHT 12
+#define INPUT_DEADZONE 0
 
-// Define global variables
-char screen[WIDTH * HEIGHT];
+typedef struct {
+    int height;
+    int width;
+    char *buffer;
+    HANDLE console;
+} ConsoleScreen;
 
-void toBuffer (int x, int y, const char *string) {
-    int i = 0;
-    while (string[i] && x + i < WIDTH) {
-        screen[y * WIDTH + x + i] = string[i];
-        i++;
+void toBuffer (ConsoleScreen *screen, int x, int y, const char *string) {
+    if (y < 0 || y >= screen->height) return;
+
+    for (int i = 0; string[i]; i++) {
+        int px = x + i;
+        if (px < 0 || px >= screen->width) break;
+        screen->buffer[y * screen->width + px] = string[i];
     }
 }
 
-void renderController(const XINPUT_STATE *state) {
+void renderController(ConsoleScreen *screen, XINPUT_STATE *state) {
     WORD buttons = state->Gamepad.wButtons;
     char tempBuffer[32];
 
-    toBuffer(0,0, "Controller 0");
-    toBuffer(0,1, "============");
+    toBuffer(screen, 0, 0, "Controller 0");
+    toBuffer(screen, 0, 1, "============");
 
-    sprintf(tempBuffer, "A: %-8s\n", (XINPUT_GAMEPAD_A & buttons) ? "Pressed" : "Released");
-    toBuffer(0,3, tempBuffer);
+    sprintf(tempBuffer, "A: %-8s", (XINPUT_GAMEPAD_A & buttons) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 3, tempBuffer);
 
-    sprintf(tempBuffer, "B: %-8s\n", (XINPUT_GAMEPAD_B & buttons) ? "Pressed" : "Released");
-    toBuffer(0,4, tempBuffer);
+    sprintf(tempBuffer, "B: %-8s", (XINPUT_GAMEPAD_B & buttons) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 4, tempBuffer);
 
-    sprintf(tempBuffer, "X: %-8s\n", (XINPUT_GAMEPAD_X & buttons) ? "Pressed" : "Released");
-    toBuffer(0,5, tempBuffer);
+    sprintf(tempBuffer, "X: %-8s", (XINPUT_GAMEPAD_X & buttons) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 5, tempBuffer);
 
-    sprintf(tempBuffer, "Y: %-8s\n", (XINPUT_GAMEPAD_Y & buttons) ? "Pressed" : "Released");
-    toBuffer(0,6, tempBuffer);
+    sprintf(tempBuffer, "Y: %-8s", (XINPUT_GAMEPAD_Y & buttons) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 6, tempBuffer);
 
-    sprintf(tempBuffer, "    LX: %6d\n", (state->Gamepad.sThumbLX));
-    toBuffer(0,8, tempBuffer);
+    sprintf(tempBuffer, "LX: %6d", (state->Gamepad.sThumbLX));
+    toBuffer(screen, 0, 8, tempBuffer);
 
-    sprintf(tempBuffer, "    LY: %d\n", (state->Gamepad.sThumbLY));
-    toBuffer(0,9, tempBuffer);
+    sprintf(tempBuffer, "LY: %d", (state->Gamepad.sThumbLY));
+    toBuffer(screen, 0, 9, tempBuffer);
 }
 
-void flushBuffer(HANDLE hConsole) {
+void flushBuffer(ConsoleScreen *screen) {
     DWORD written;
     COORD origin = {0,0};
 
     WriteConsoleOutputCharacterA(
-        hConsole,
-        screen,
-        WIDTH * HEIGHT,
+        screen->console,
+        screen->buffer,
+        screen->width * screen->height,
         origin,
         &written
     );
 }
 
-void clearRegion () {
-    for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        screen[i] = ' ';
-    }
+void clearRegion(ConsoleScreen *screen) {
+    memset(screen->buffer, ' ', screen->width * screen->height);
 }
 
 char *batteryLevel(BYTE batLevel) {
@@ -105,11 +106,26 @@ void setDeadzone (float *magnitude, float *normalizedMagnitude) {
 }
 
 int main () {
-    // Initialize Structures
+    // Initialize XInput structures
     XINPUT_STATE state;
     XINPUT_BATTERY_INFORMATION batteryInfo;
+    // Initialize console stuctures
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD origin = {0,0};
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    ConsoleScreen screen;
+
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+
+    // Load ConsoleScreen struct values
+    screen.width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    screen.height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    screen.console = hConsole;
+    screen.buffer = malloc(screen.width * screen.height);
+
+    COORD size = {
+        (SHORT)screen.width,
+        (SHORT)screen.height
+    };
 
     // Dead Zone variables (not useful until i get an actual controller instead of this fight stick)
     float LX = state.Gamepad.sThumbLX;
@@ -120,10 +136,11 @@ int main () {
     float normalizedMagnitude = 0;
 
     setDeadzone(&magnitude, &normalizedMagnitude);
+    SetConsoleScreenBufferSize(screen.console, size);
     system("cls");
     
     while (1) {
-        clearRegion(hConsole, WIDTH, HEIGHT);
+        clearRegion(&screen);
 
         // Checks if our controller is plugged in by clearing the memory of it every frame
         ZeroMemory(&state, sizeof(state));
@@ -133,13 +150,14 @@ int main () {
         {
             // Collects battery info and what buttons are being pressed at that frame
             DWORD batteryResult = XInputGetBatteryInformation(0, BATTERY_DEVTYPE_GAMEPAD, &batteryInfo);
-            renderController(&state);
+            renderController(&screen, &state);
         }
         else {
-            toBuffer(0, 0, "controller is not plugged in.");
+            clearRegion(&screen);
+            toBuffer(&screen, 0, 0, "controller is not plugged in.");
         }
 
-        flushBuffer(hConsole);
+        flushBuffer(&screen);
         Sleep(16);
     }
 }
