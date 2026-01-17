@@ -14,40 +14,60 @@
 #define WIDTH 60
 #define HEIGHT 12
 
-void printControllerData(WORD buttons, XINPUT_STATE *state) {
-    printf("Controller 0\n");
-    printf("============\n");
-    
-    printf("Buttons: 0\n");
+// Define global variables
+char screen[WIDTH * HEIGHT];
 
-    printf("    A: %s\n", (XINPUT_GAMEPAD_A & buttons) ? "Pressed" : "Released");
-    printf("    B: %s\n", (XINPUT_GAMEPAD_B & buttons) ? "Pressed" : "Released");
-    printf("    X: %s\n", (XINPUT_GAMEPAD_X & buttons) ? "Pressed" : "Released");
-    printf("    Y: %s\n", (XINPUT_GAMEPAD_Y & buttons) ? "Pressed" : "Released");
-
-    printf("Left Thumb Stick\n");
-
-    printf("    LX: %d\n", (state->Gamepad.sThumbLX));
-    printf("    LY: %d\n", (state->Gamepad.sThumbLY));
+void toBuffer (int x, int y, const char *string) {
+    int i = 0;
+    while (string[i] && x + i < WIDTH) {
+        screen[y * WIDTH + x + i] = string[i];
+        i++;
+    }
 }
 
-void hideCursor(HANDLE hConsole) {
-    CONSOLE_CURSOR_INFO info;
-    info.dwSize = 1;
-    info.bVisible = FALSE;
-    SetConsoleCursorInfo(hConsole, &info);
+void renderController(const XINPUT_STATE *state) {
+    WORD buttons = state->Gamepad.wButtons;
+    char tempBuffer[32];
+
+    toBuffer(0,0, "Controller 0");
+    toBuffer(0,1, "============");
+
+    sprintf(tempBuffer, "A: %-8s\n", (XINPUT_GAMEPAD_A & buttons) ? "Pressed" : "Released");
+    toBuffer(0,3, tempBuffer);
+
+    sprintf(tempBuffer, "B: %-8s\n", (XINPUT_GAMEPAD_B & buttons) ? "Pressed" : "Released");
+    toBuffer(0,4, tempBuffer);
+
+    sprintf(tempBuffer, "X: %-8s\n", (XINPUT_GAMEPAD_X & buttons) ? "Pressed" : "Released");
+    toBuffer(0,5, tempBuffer);
+
+    sprintf(tempBuffer, "Y: %-8s\n", (XINPUT_GAMEPAD_Y & buttons) ? "Pressed" : "Released");
+    toBuffer(0,6, tempBuffer);
+
+    sprintf(tempBuffer, "    LX: %6d\n", (state->Gamepad.sThumbLX));
+    toBuffer(0,8, tempBuffer);
+
+    sprintf(tempBuffer, "    LY: %d\n", (state->Gamepad.sThumbLY));
+    toBuffer(0,9, tempBuffer);
 }
 
-void clearRegion (HANDLE hConsole, SHORT width, SHORT height) {
+void flushBuffer(HANDLE hConsole) {
     DWORD written;
     COORD origin = {0,0};
 
-    for (SHORT y = 0; y<height; y++) {
-        COORD line = {0, y};
-        FillConsoleOutputCharacterA(hConsole, ' ', width, line, &written);
-    }
+    WriteConsoleOutputCharacterA(
+        hConsole,
+        screen,
+        WIDTH * HEIGHT,
+        origin,
+        &written
+    );
+}
 
-    SetConsoleCursorPosition(hConsole, origin);
+void clearRegion () {
+    for (int i = 0; i < WIDTH * HEIGHT; i++) {
+        screen[i] = ' ';
+    }
 }
 
 char *batteryLevel(BYTE batLevel) {
@@ -72,6 +92,18 @@ char *batteryType(BYTE batType) {
     }
 }
 
+void setDeadzone (float *magnitude, float *normalizedMagnitude) {
+    if (*magnitude > INPUT_DEADZONE) {
+        if (*magnitude > MAGNITUDE_MAX) *magnitude = MAGNITUDE_MAX;
+        *magnitude -= INPUT_DEADZONE;
+        *normalizedMagnitude = *magnitude / (MAGNITUDE_MAX - INPUT_DEADZONE);
+    }
+    else {
+        *magnitude = 0.0;
+        *normalizedMagnitude = 0.0;
+    }
+}
+
 int main () {
     // Initialize Structures
     XINPUT_STATE state;
@@ -87,8 +119,8 @@ int main () {
     float normalizedLY = LY / magnitude;
     float normalizedMagnitude = 0;
 
-    // Clear the Screen
-    hideCursor(hConsole);
+    setDeadzone(&magnitude, &normalizedMagnitude);
+    system("cls");
     
     while (1) {
         clearRegion(hConsole, WIDTH, HEIGHT);
@@ -101,25 +133,13 @@ int main () {
         {
             // Collects battery info and what buttons are being pressed at that frame
             DWORD batteryResult = XInputGetBatteryInformation(0, BATTERY_DEVTYPE_GAMEPAD, &batteryInfo);
-            WORD buttons = state.Gamepad.wButtons;
-            // Dead Zone compensation
-            if (magnitude > INPUT_DEADZONE) {
-                if (magnitude > MAGNITUDE_MAX) magnitude = MAGNITUDE_MAX;
-                magnitude -= INPUT_DEADZONE;
-                normalizedMagnitude = magnitude / (MAGNITUDE_MAX - INPUT_DEADZONE);
-            }
-            else {
-                magnitude = 0.0;
-                normalizedMagnitude = 0.0;
-            }
-
-            printControllerData(buttons, &state);
+            renderController(&state);
         }
         else {
-            printf("controller is not plugged in.");
-
-            fflush(stdout);
-            Sleep(64);
+            toBuffer(0, 0, "controller is not plugged in.");
         }
+
+        flushBuffer(hConsole);
+        Sleep(16);
     }
 }
