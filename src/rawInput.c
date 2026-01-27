@@ -1,36 +1,13 @@
-#include <windows.h>
-#include <hidsdi.h>
-#include <hidpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <math.h>
 #include <RawInput_Backend.h>
-
-#define MAX_USAGES 128
+#include <hidProfiles.h>
 
 typedef struct {
     uint8_t  buttonDown[GAMEPAD_BUTTON_COUNT]; // 1 for pressed, 0 for released
     float    axisValue[GAMEPAD_MAX_AXES];
 } RawState;
-
-// Creates a device record that we call once per device. caps are short for capabilities.
-typedef struct {
-    int buttonMap[MAX_USAGES];
-    int axisMap[MAX_USAGES];
-
-    uint16_t vendorID;
-    uint16_t productID;
-
-    HANDLE device;
-    PHIDP_PREPARSED_DATA preparsed;
-    HIDP_CAPS caps;
-
-    HIDP_BUTTON_CAPS *buttonCaps;
-    USHORT buttonCapCount;
-    HIDP_VALUE_CAPS *valueCaps;
-    USHORT valueCapCount;
-} HidRecord;
 
 static GamepadState gState[MAX_CONTROLLERS];
 static HidRecord hidRecord[MAX_CONTROLLERS];
@@ -179,59 +156,21 @@ HidRecord *devReg(HANDLE hDevice) {
     newRecord->buttonCaps = malloc(sizeof(HIDP_BUTTON_CAPS) * newRecord->buttonCapCount);
     newRecord->valueCaps  = malloc(sizeof(HIDP_VALUE_CAPS)  * newRecord->valueCapCount);
 
-    // Fill caps
+    // Fill capabilities
     HidP_GetButtonCaps(HidP_Input, newRecord->buttonCaps,
                     &newRecord->buttonCapCount, newRecord->preparsed);
 
     HidP_GetValueCaps(HidP_Input, newRecord->valueCaps,
                     &newRecord->valueCapCount, newRecord->preparsed);
     
+    // Values not mapped by our profile function will show NULL
     for (int i = 0; i < MAX_USAGES; i++) {
         newRecord->buttonMap[i] = -1;
         newRecord->axisMap[i] = -1;
     }
 
-    // Buttons
-    for (USHORT i = 0; i < newRecord->buttonCapCount; i++) {
-    HIDP_BUTTON_CAPS *bc = &newRecord->buttonCaps[i];
-
-    if (bc->UsagePage != 0x09)
-        continue;
-
-    if (bc->IsRange) {
-        for (USAGE u = bc->Range.UsageMin; u <= bc->Range.UsageMax && u < MAX_USAGES; u++) {
-            switch (u) {
-                /* Raw Input doesn't tell you what button does what, we have to
-                identify it ourselves*/
-                case 1: newRecord->buttonMap[u] = 0; break;
-                case 2: newRecord->buttonMap[u] = 1; break;
-                case 3: newRecord->buttonMap[u] = 2; break;
-                case 4: newRecord->buttonMap[u] = 3; break;
-                case 5: newRecord->buttonMap[u] = 4; break;
-                case 6: newRecord->buttonMap[u] = 5; break;
-            }
-        }
-    }
-}
-
-    // Axes
-    for (USHORT i = 0; i < newRecord->valueCapCount; i++) {
-    HIDP_VALUE_CAPS *vc = &newRecord->valueCaps[i];
-
-    if (vc->UsagePage != 0x01 || vc->IsRange)
-        continue;
-
-    switch (vc->NotRange.Usage) {
-        case 0x30: newRecord->axisMap[0x30] = AXIS_LX; break; // LX
-        case 0x31: newRecord->axisMap[0x31] = AXIS_LY; break; // LY
-        case 0x32: newRecord->axisMap[0x32] = AXIS_RX; break; // RX
-        case 0x35: newRecord->axisMap[0x35] = AXIS_RY; break; // RY
-
-        // Doesn't get anything rn
-        case 0x36: newRecord->axisMap[0x36] = AXIS_RT; break; // RT
-        case 0x37: newRecord->axisMap[0x37] = AXIS_LT; break; // LT
-    }
-}
+    // Map buttons to our inputs
+    applyProfile(newRecord);
 
     return newRecord;
 }
@@ -269,9 +208,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (raw->header.dwType == RIM_TYPEHID) {
                 HidRecord *dev = devReg(raw->header.hDevice);
                 if (dev) {
-                    // interpret raw bytes to our frontend Gamepad State structure
+                    // Parse the report
                     int devIndex = (int)(dev - hidRecord);
-                    parseReport(dev, raw->data.hid.bRawData, raw->data.hid.dwSizeHid, devIndex);
+                    for (DWORD i = 0; i < raw->data.hid.dwCount; i++) {
+                        const BYTE *report = raw->data.hid.bRawData + (i * raw->data.hid.dwSizeHid);
+                        
+                        parseReport(dev, report, raw->data.hid.dwSizeHid, devIndex);
+                    }
                 }
             }
             break;

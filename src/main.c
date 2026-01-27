@@ -54,23 +54,41 @@ void renderController(ConsoleScreen *screen, const GamepadState *state) {
     sprintf(tempBuffer, "LB: %-8s", (state->buttons & BTN_LB) ? "Pressed" : "Released");
     toBuffer(screen, 0, 9, tempBuffer);
 
-    sprintf(tempBuffer, "RT: %-8s", (state->axes[AXIS_RT]));
+    sprintf(tempBuffer, "SELECT: %-8s", (state->buttons & BTN_BACK) ? "Pressed" : "Released");
     toBuffer(screen, 0, 11, tempBuffer);
 
-    sprintf(tempBuffer, "LT: %-8s", (state->axes[AXIS_LT]));
+    sprintf(tempBuffer, "START: %-8s", (state->buttons & BTN_START) ? "Pressed" : "Released");
     toBuffer(screen, 0, 12, tempBuffer);
 
-    sprintf(tempBuffer, "LX: %6d", (state->axes[AXIS_LX]));
+    sprintf(tempBuffer, "D-UP: %-8s", (state->buttons & BTN_DPAD_UP) ? "Pressed" : "Released");
     toBuffer(screen, 0, 14, tempBuffer);
 
-    sprintf(tempBuffer, "LY: %d", (state->axes[AXIS_LY]));
+    sprintf(tempBuffer, "D-DOWN: %-8s", (state->buttons & BTN_DPAD_DOWN) ? "Pressed" : "Released");
     toBuffer(screen, 0, 15, tempBuffer);
 
-    sprintf(tempBuffer, "RX: %6d", (state->axes[AXIS_RX]));
+    sprintf(tempBuffer, "D-LEFT: %-8s", (state->buttons & BTN_DPAD_LEFT) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 16, tempBuffer);
+
+    sprintf(tempBuffer, "D-RIGHT: %-8s", (state->buttons & BTN_DPAD_RIGHT) ? "Pressed" : "Released");
     toBuffer(screen, 0, 17, tempBuffer);
 
-    sprintf(tempBuffer, "RY: %d", (state->axes[AXIS_RY]));
-    toBuffer(screen, 0, 18, tempBuffer);
+    sprintf(tempBuffer, "RT: %-8s", (state->axes[AXIS_RT]));
+    toBuffer(screen, 0, 19, tempBuffer);
+
+    sprintf(tempBuffer, "LT: %-8s", (state->axes[AXIS_LT]));
+    toBuffer(screen, 0, 20, tempBuffer);
+
+    sprintf(tempBuffer, "LX: %6d", (state->axes[AXIS_LX]));
+    toBuffer(screen, 0, 22, tempBuffer);
+
+    sprintf(tempBuffer, "LY: %6d", (state->axes[AXIS_LY]));
+    toBuffer(screen, 0, 23, tempBuffer);
+
+    sprintf(tempBuffer, "RX: %6d", (state->axes[AXIS_RX]));
+    toBuffer(screen, 0, 25, tempBuffer);
+
+    sprintf(tempBuffer, "RY: %6d", (state->axes[AXIS_RY]));
+    toBuffer(screen, 0, 26, tempBuffer);
 }
 
 void flushBuffer(ConsoleScreen *screen) {
@@ -115,13 +133,15 @@ int main () {
     input_init();
     
     while (1) {
-        clearRegion(&screen);
+
+        //for now we are not running the renderer so we can map buttons
+        //clearRegion(&screen);
 
         // We are only grabbing data on the first controller we see for now
         input_update();
         const GamepadState *padState = input_get_gamepad(0);
-        renderController(&screen, padState);
-        flushBuffer(&screen);
+        //renderController(&screen, padState);
+        //flushBuffer(&screen);
         Sleep(16);
     }
 }

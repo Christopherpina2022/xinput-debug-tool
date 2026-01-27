@@ -1,22 +1,29 @@
 #pragma once
+#include <windows.h>
 #include <input.h>
+#include <hidsdi.h>
+#include <hidpi.h>
+#include <stdint.h>
 
-#define SONY_VID 0x054C
-#define NINTENDO_VID 0x057E
+#define MAX_USAGES 128
 
-/* PIDs may not actually be used since the VID may be good enough
-to map buttons and axes. We aren't considering extra features anyway.*/
+// Creates a device record that we call once per device. caps are short for capabilities.
+typedef struct {
+    int buttonMap[MAX_USAGES];
+    int axisMap[MAX_USAGES];
 
-#define SONY_PID_DS3 0x0268
-#define SONY_PID_DS4_V1 0x05C4
-#define SONY_PID_DS4_V2 0x09CC
-#define SONY_PID_PS5 0x0CE6
-#define SONY_PID_PCC 0x0CDA
+    uint16_t vendorID;
+    uint16_t productID;
 
-#define NINTENDO_PID_SPC 0x2009
-#define NINTENDO_PID_SJC_1 0x2006
-#define NINTENDO_PID_SJC_2 0x2007
-#define NINTENDO_PID_WII 0x0306
+    HANDLE device;
+    PHIDP_PREPARSED_DATA preparsed;
+    HIDP_CAPS caps;
+
+    HIDP_BUTTON_CAPS *buttonCaps;
+    USHORT buttonCapCount;
+    HIDP_VALUE_CAPS *valueCaps;
+    USHORT valueCapCount;
+} HidRecord;
 
 void rawInit(void);
 void rawUpdate(void);
