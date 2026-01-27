@@ -2,6 +2,8 @@
 #include <stdint.h>
 
 #define MAX_CONTROLLERS 4
+#define GAMEPAD_BUTTON_COUNT 14
+#define GAMEPAD_MAX_AXES 6
 
 typedef enum {
     BTN_A       = 1 << 0,
@@ -24,12 +26,22 @@ typedef enum {
     BTN_DPAD_RIGHT = 1 << 13
 } GamepadButtons;
 
+typedef enum {
+    AXIS_LX,
+    AXIS_LY,
+    AXIS_RX,
+    AXIS_RY,
+
+    AXIS_LT,
+    AXIS_RT,
+
+    AXIS_COUNT
+} GamepadAxis;
+
 typedef struct {
     int connected;
-    int16_t lx, ly;
-    int16_t rx, ry;
-    uint8_t lt, rt;
-    uint16_t buttons;
+    float axes[GAMEPAD_MAX_AXES];
+    uint16_t buttons; 
 } GamepadState;
 
 void input_init(void);
