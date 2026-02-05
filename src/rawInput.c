@@ -24,69 +24,23 @@ void parseReport(HidRecord *dev, const BYTE *report, UINT size, int devIndex) {
     if (devIndex < 0 || devIndex >= MAX_CONTROLLERS)
         return;
 
-    GamepadState *g = &gState[devIndex];
+    // Initialize gamepad State pointer in HidRecord Structure
+    GamepadState *g = dev->state;
     g->connected = 1;
 
     memset(g->axes, 0, sizeof(g->axes));
-    g->buttons &= ~(
-        (1 << GAMEPAD_BTN_DPAD_UP) |
-        (1 << GAMEPAD_BTN_DPAD_DOWN) |
-        (1 << GAMEPAD_BTN_DPAD_LEFT) |
-        (1 << GAMEPAD_BTN_DPAD_RIGHT)
-    );
+    g->buttons = 0;
 
     for (USHORT i = 0; i < dev->valueCapCount; i++) {
         HIDP_VALUE_CAPS *vc = &dev->valueCaps[i];
         LONG value;
 
-        if (HidP_GetUsageValue(
-                HidP_Input,
-                vc->UsagePage,
-                0,
-                vc->NotRange.Usage,
-                &value,
-                dev->preparsed,
-                (PCHAR)report,
-                size) != HIDP_STATUS_SUCCESS)
+        if (HidP_GetUsageValue(HidP_Input,vc->UsagePage,0,vc->NotRange.Usage,&value,dev->preparsed,(PCHAR)report,size) != HIDP_STATUS_SUCCESS)
             continue;
 
-        // DPAD (Hat Switch)
-        if (vc->UsagePage == 0x01 && vc->NotRange.Usage == 0x39) {
-            switch (value) {
-                case 0: g->buttons |= (1 << GAMEPAD_BTN_DPAD_UP); break;
-                case 1: g->buttons |= (1 << GAMEPAD_BTN_DPAD_UP) | (1 << GAMEPAD_BTN_DPAD_RIGHT); break;
-                case 2: g->buttons |= (1 << GAMEPAD_BTN_DPAD_RIGHT); break;
-                case 3: g->buttons |= (1 << GAMEPAD_BTN_DPAD_DOWN) | (1 << GAMEPAD_BTN_DPAD_RIGHT); break;
-                case 4: g->buttons |= (1 << GAMEPAD_BTN_DPAD_DOWN); break;
-                case 5: g->buttons |= (1 << GAMEPAD_BTN_DPAD_DOWN) | (1 << GAMEPAD_BTN_DPAD_LEFT); break;
-                case 6: g->buttons |= (1 << GAMEPAD_BTN_DPAD_LEFT); break;
-                case 7: g->buttons |= (1 << GAMEPAD_BTN_DPAD_UP) | (1 << GAMEPAD_BTN_DPAD_LEFT); break;
-                default: break; // neutral
-            }
-            continue;
-        }
+        // run the HID profiler
 
-        // Axes
-        if (vc->UsagePage != 0x01)
-            continue;
 
-        int axis = vc->NotRange.Usage - 0x30;
-        if (axis < 0 || axis >= AXIS_COUNT)
-            continue;
-
-        float normalized = 0.0f;
-        if (vc->LogicalMax != vc->LogicalMin) {
-            normalized = (float)(value - vc->LogicalMin) / (float)(vc->LogicalMax - vc->LogicalMin);
-            // Sticks -> -1..1
-            normalized = normalized * 2.0f - 1.0f;
-        }
-        // Apply a deadzone to each stick Axes
-        g->axes[AXIS_LX] = applyDeadzone(g->axes[AXIS_LX], 0.2f);
-        g->axes[AXIS_LY] = applyDeadzone(g->axes[AXIS_LY], 0.2f);
-        g->axes[AXIS_RX] = applyDeadzone(g->axes[AXIS_RX], 0.2f);
-        g->axes[AXIS_RY] = applyDeadzone(g->axes[AXIS_RY], 0.2f);
-
-        g->axes[axis] = normalized;
     }
 }
 
