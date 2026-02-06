@@ -20,123 +20,211 @@ static inline float applyDeadzone(float v, float dz) {
         return (v + dz) / (1.0f - dz);
 }
 
-void parseReport(HidRecord *dev, const BYTE *report, UINT size, int devIndex) {
-    if (devIndex < 0 || devIndex >= MAX_CONTROLLERS)
-        return;
-
+void parseReport(HidRecord *dev, const BYTE *report, UINT size) {
     GamepadState *g = dev->state;
     g->connected = 1;
-
     memset(g->axes, 0, sizeof(g->axes));
     g->buttons = 0;
 
-    for (USHORT i = 0; i < dev->valueCapCount; i++) {
-        HIDP_VALUE_CAPS *vc = &dev->valueCaps[i];
+    // Loop through DB-mapped axes
+    for (int i = 0; i < dev->axisCount; i++) {
+        AxisMapping *map = &dev->axes[i];
+
+        // Skip if we couldn't find capIndex
+        if (map->capIndex < 0 || map->capIndex >= dev->valueCapCount)
+            continue;
+
+        HIDP_VALUE_CAPS *vc = &dev->valueCaps[map->capIndex];
         LONG value;
 
-        if (HidP_GetUsageValue(HidP_Input,vc->UsagePage,0,vc->NotRange.Usage,&value,dev->preparsed,(PCHAR)report,size) != HIDP_STATUS_SUCCESS)
+        if (HidP_GetUsageValue(
+                HidP_Input,
+                vc->UsagePage,
+                0,
+                vc->NotRange.Usage,
+                &value,
+                dev->preparsed,
+                (PCHAR)report,
+                size
+            ) != HIDP_STATUS_SUCCESS)
             continue;
-            
-        // TODO: Implement reading the SDL values rather than looking by Usage number
-        int usage = vc->NotRange.Usage;
 
-        if (usage >= 0 && usage < MAX_USAGES) {
-            int btn = dev->buttonMap[usage];
-            if (btn != HID_MAP_UNUSED && value) {
-                g->buttons |= 1 << btn;
-            }
+        // Normalize to [-1, 1]
+        float norm = (float)(value - vc->LogicalMin) / (float)(vc->LogicalMax - vc->LogicalMin);
+        norm = norm * 2.0f - 1.0f;
 
-            int dpad = dev->dpadMap[usage];
-            if (dpad != HID_MAP_UNUSED && value) {
-                g->buttons |= 1 << dpad;
-            }
+        g->axes[map->mappedEnum] = applyDeadzone(norm, DEADZONE);
+    }
 
-            int ax = dev->axisMap[usage];
-            if (ax != HID_MAP_UNUSED) {
-                float normalized = 0.0f;
-                if (vc->LogicalMax != vc->LogicalMin) {
-                    normalized = (float)(value - vc->LogicalMin) / (float)(vc->LogicalMax - vc->LogicalMin);
-                    normalized = normalized * 2.0f - 1.0f; // map to -1..1
+    // Loop through DB-mapped Buttons
+    ULONG usageCount = 32;
+    USAGE usages[32];
+
+    if (HidP_GetUsages(
+            HidP_Input,
+            HID_USAGE_PAGE_BUTTON,
+            0,
+            usages,
+            &usageCount,
+            dev->preparsed,
+            (PCHAR)report,
+            size
+        ) == HIDP_STATUS_SUCCESS) {
+
+        for (ULONG i = 0; i < usageCount; i++) {
+            for (int b = 0; b < dev->buttonCount; b++) {
+                if (dev->buttons[b].usage == usages[i]) {
+                    g->buttons |= (1u << dev->buttons[b].mappedEnum);
                 }
-                g->axes[ax] = applyDeadzone(normalized, DEADZONE);
+            }
+        }
+    }
+
+    // Loop through DB-mapped DPAD mapping
+    if (dev->hatCapIndex >= 0) {
+        HIDP_VALUE_CAPS *vc = &dev->valueCaps[dev->hatCapIndex];
+        LONG hat;
+
+        if (HidP_GetUsageValue(
+                HidP_Input,
+                vc->UsagePage,
+                0,
+                vc->NotRange.Usage,
+                &hat,
+                dev->preparsed,
+                (PCHAR)report,
+                size
+            ) == HIDP_STATUS_SUCCESS) {
+
+            // Clear DPAD bits first
+            g->buttons &= ~(BTN_DPAD_UP | BTN_DPAD_DOWN |
+                BTN_DPAD_LEFT | BTN_DPAD_RIGHT);
+
+            switch (hat) {
+                case 0: g->buttons |= BTN_DPAD_UP; break;
+                case 1: g->buttons |= BTN_DPAD_UP | BTN_DPAD_RIGHT; break;
+                case 2: g->buttons |= BTN_DPAD_RIGHT; break;
+                case 3: g->buttons |= BTN_DPAD_DOWN | BTN_DPAD_RIGHT; break;
+                case 4: g->buttons |= BTN_DPAD_DOWN; break;
+                case 5: g->buttons |= BTN_DPAD_DOWN | BTN_DPAD_LEFT; break;
+                case 6: g->buttons |= BTN_DPAD_LEFT; break;
+                case 7: g->buttons |= BTN_DPAD_UP | BTN_DPAD_LEFT; break;
+                default: break; // neutral
             }
         }
     }
 }
 
+
 HidRecord *devReg(HANDLE hDevice) {
-    // Check first if device was already registered
+    // Return existing record if already registered
     for (int i = 0; i < hidDevCount; i++) {
         if (hidRecord[i].device == hDevice)
-        {
             return &hidRecord[i];
-        }
     }
 
-    // Safety check if the hidRecord count is above our max
-    if (hidDevCount >= MAX_CONTROLLERS) {
+    if (hidDevCount >= MAX_CONTROLLERS)
         return NULL;
-    }
 
-    HidRecord *newRecord = &hidRecord[hidDevCount++];
-    memset(newRecord, 0, sizeof(HidRecord));
-    newRecord->device = hDevice;
+    HidRecord *dev = &hidRecord[hidDevCount++];
+    memset(dev, 0, sizeof(HidRecord));
+    dev->device = hDevice;
 
+    // Get VID/PID
     RID_DEVICE_INFO info;
     UINT infoSize = sizeof(info);
     info.cbSize = sizeof(info);
-
-    // Assign vendor ID and Product ID
-    if (GetRawInputDeviceInfo(
-        hDevice,
-        RIDI_DEVICEINFO,
-        &info,
-        &infoSize
-    ) > 0 ) {
+    if (GetRawInputDeviceInfo(hDevice, RIDI_DEVICEINFO, &info, &infoSize) > 0) {
         if (info.dwType == RIM_TYPEHID) {
-            newRecord->vendorID = info.hid.dwVendorId;
-            newRecord->productID = info.hid.dwProductId;
+            dev->vendorID = info.hid.dwVendorId;
+            dev->productID = info.hid.dwProductId;
         }
     }
 
-    // clear maps
-    for (int i = 0; i < MAX_USAGES; i++) {
-        newRecord->buttonMap[i] = HID_MAP_UNUSED;
-        newRecord->axisMap[i]   = HID_MAP_UNUSED;
-        newRecord->dpadMap[i]   = HID_MAP_UNUSED;
-    }
-
-    // Get preparsed data
+    // Preparsed data
     UINT size = 0;
     GetRawInputDeviceInfo(hDevice, RIDI_PREPARSEDDATA, NULL, &size);
-    newRecord->preparsed = malloc(size);
-    GetRawInputDeviceInfo(hDevice, RIDI_PREPARSEDDATA, newRecord->preparsed, &size);
+    dev->preparsed = malloc(size);
+    GetRawInputDeviceInfo(hDevice, RIDI_PREPARSEDDATA, dev->preparsed, &size);
 
-    // Get caps
-    HidP_GetCaps(newRecord->preparsed, &newRecord->caps);
+    // Capabilities
+    HidP_GetCaps(dev->preparsed, &dev->caps);
+    dev->buttonCapCount = dev->caps.NumberInputButtonCaps;
+    dev->valueCapCount  = dev->caps.NumberInputValueCaps;
 
-    newRecord->buttonCapCount = newRecord->caps.NumberInputButtonCaps;
-    newRecord->valueCapCount  = newRecord->caps.NumberInputValueCaps;
+    dev->buttonCaps = malloc(sizeof(HIDP_BUTTON_CAPS) * dev->buttonCapCount);
+    dev->valueCaps  = malloc(sizeof(HIDP_VALUE_CAPS)  * dev->valueCapCount);
 
-    // Allocate caps
-    newRecord->buttonCaps = malloc(sizeof(HIDP_BUTTON_CAPS) * newRecord->buttonCapCount);
-    newRecord->valueCaps  = malloc(sizeof(HIDP_VALUE_CAPS)  * newRecord->valueCapCount);
+    HidP_GetButtonCaps(HidP_Input, dev->buttonCaps, &dev->buttonCapCount, dev->preparsed);
+    HidP_GetValueCaps(HidP_Input, dev->valueCaps, &dev->valueCapCount, dev->preparsed);
 
-    // Fill capabilities
-    HidP_GetButtonCaps(HidP_Input, newRecord->buttonCaps,
-                    &newRecord->buttonCapCount, newRecord->preparsed);
+    // Identify axes based on Generic Desktop UsagePage
+    dev->axisCount = 0;
+    for (USHORT i = 0; i < dev->valueCapCount; i++) {
+        HIDP_VALUE_CAPS *vc = &dev->valueCaps[i];
+        if (vc->UsagePage == HID_USAGE_PAGE_GENERIC_DESKTOP) {
+            dev->axisCapIndex[dev->axisCount++] = i;
+        }
+    }
 
-    HidP_GetValueCaps(HidP_Input, newRecord->valueCaps,
-                    &newRecord->valueCapCount, newRecord->preparsed);
+    // buildHIDMap fills dev->axes[i].mappedEnum and dev->axes[i].usage
+    buildHIDMap(dev);
 
-    // Load game state pointer with our NewRecord values
-    newRecord->state = &gState[hidDevCount - 1];
+    // Map Axes
+    for (int i = 0; i < dev->axisCount; i++) {
+        AxisMapping *map = &dev->axes[i];
+        map->capIndex = -1;
 
-    // Map buttons to our inputs
-    buildHIDMap(newRecord);
+        for (USHORT j = 0; j < dev->valueCapCount; j++) {
+            HIDP_VALUE_CAPS *vc = &dev->valueCaps[j];
+            if (vc->UsagePage != HID_USAGE_PAGE_GENERIC_DESKTOP)
+                continue;
 
-    return newRecord;
+            // Match DB usage to RawInput usage
+            if (vc->NotRange.Usage == map->usage) {
+                map->capIndex = j;
+                break;
+            }
+        }
+    }
+
+    // Map Buttons
+    for (int i = 0; i < dev->buttonCount; i++) {
+        ButtonMapping *m = &dev->buttons[i];
+        m->usage = 0;
+
+        for (USHORT j = 0; j < dev->buttonCapCount; j++) {
+            HIDP_BUTTON_CAPS *bc = &dev->buttonCaps[j];
+
+            if (bc->UsagePage != HID_USAGE_PAGE_BUTTON)
+                continue;
+
+            if (bc->IsRange) {
+                USHORT usage = bc->Range.UsageMin + m->buttonIndex;
+                if (usage <= bc->Range.UsageMax) {
+                    m->usage = usage;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Map DPAD
+    dev->hatCapIndex = -1;
+
+    for (USHORT i = 0; i < dev->valueCapCount; i++) {
+        HIDP_VALUE_CAPS *vc = &dev->valueCaps[i];
+
+        if (vc->UsagePage == HID_USAGE_PAGE_GENERIC_DESKTOP &&
+            vc->NotRange.Usage == HID_USAGE_HAT_SWITCH) {
+            dev->hatCapIndex = i;
+        }
+    }
+
+    dev->state = &gState[hidDevCount - 1];
+    return dev;
 }
+
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -176,7 +264,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     for (DWORD i = 0; i < raw->data.hid.dwCount; i++) {
                         const BYTE *report = raw->data.hid.bRawData + (i * raw->data.hid.dwSizeHid);
                         
-                        parseReport(dev, report, raw->data.hid.dwSizeHid, devIndex);
+                        parseReport(dev, report, raw->data.hid.dwSizeHid);
                     }
                 }
             }

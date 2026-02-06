@@ -33,26 +33,20 @@ void xinput_init() {
     memset(controllers, 0, sizeof(controllers));
 }
 
-char *batteryLevel(BYTE batLevel) {
-    switch (batLevel)
-    {
-    case BATTERY_LEVEL_EMPTY:   return "Empty";
-    case BATTERY_LEVEL_LOW:     return "Low";
-    case BATTERY_LEVEL_MEDIUM:  return "Medium";
-    case BATTERY_LEVEL_FULL:    return "Full";
-    default:                    return "Unknown";
-    }
+// Normalize stick axes to [-1,1], triggers to [0,1]
+static float normalizeAxis(SHORT value, SHORT deadzone) {
+    if (value > -deadzone && value < deadzone)
+        return 0.0f;
+
+    float normalized = (float)value / 32767.0f;
+    if (normalized > 1.0f) normalized = 1.0f;
+    if (normalized < -1.0f) normalized = -1.0f;
+    return normalized;
 }
 
-char *batteryType(BYTE batType) {
-    switch (batType)
-    {
-    case BATTERY_TYPE_WIRED:    return "Wired";
-    case BATTERY_TYPE_ALKALINE: return "Alkaline";
-    case BATTERY_TYPE_NIMH:     return "Nickel Metal Hydride";
-    case BATTERY_TYPE_UNKNOWN:  return "Unknown";
-    default:
-    }
+static float normalizeTrigger(BYTE value) {
+    if (value < XINPUT_GAMEPAD_TRIGGER_THRESHOLD) return 0.0f;
+    return (float)value / 255.0f;
 }
 
 static uint16_t mapButtons(WORD buttons) {
@@ -80,36 +74,29 @@ static uint16_t mapButtons(WORD buttons) {
     return out;
 }
 
-void xinput_update () {
-    for (int i = 0; i < MAX_CONTROLLERS; i++) {
+void xinput_update() {
+    for (DWORD i = 0; i < MAX_CONTROLLERS; i++) {
         XINPUT_STATE state;
-        XINPUT_BATTERY_INFORMATION batteryInfo;
-        GamepadState *padState = &controllers[i];
         ZeroMemory(&state, sizeof(state));
 
-        DWORD batteryResult = XInputGetBatteryInformation(0, BATTERY_DEVTYPE_GAMEPAD, &batteryInfo);
-        DWORD result = XInputGetState(0, &state);
+        if (XInputGetState(i, &state) == ERROR_SUCCESS) {
+            GamepadState *g = &controllers[i];
+            g->connected = 1;
 
-        // Will be set in the Xinput backend for now, but want to make it universal to both Xinput and Raw
-        //float normalizedMagnitude = setDeadzone(&state);
+            // Axes
+            g->axes[INPUT_AXIS_LEFT_X]  = normalizeAxis(state.Gamepad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+            g->axes[INPUT_AXIS_LEFT_Y]  = normalizeAxis(state.Gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+            g->axes[INPUT_AXIS_RIGHT_X] = normalizeAxis(state.Gamepad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+            g->axes[INPUT_AXIS_RIGHT_Y] = normalizeAxis(state.Gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+            g->axes[INPUT_AXIS_LT]      = normalizeTrigger(state.Gamepad.bLeftTrigger);
+            g->axes[INPUT_AXIS_RT]      = normalizeTrigger(state.Gamepad.bRightTrigger);
 
-        if (result == ERROR_SUCCESS){
-            padState->connected = 1;
-
-            padState->lx = state.Gamepad.sThumbLX;
-            padState->ly = state.Gamepad.sThumbLY;
-            padState->rx = state.Gamepad.sThumbRX;
-            padState->ry = state.Gamepad.sThumbRY;
-
-            padState->lt = state.Gamepad.bLeftTrigger;
-            padState->rt = state.Gamepad.bRightTrigger;
-
-            padState->buttons = mapButtons(state.Gamepad.wButtons);
+            // Buttons + DPAD
+            g->buttons = mapButtons(state.Gamepad.wButtons);
+        } else {
+            controllers[i].connected = 0;
         }
-        else {
-            controllers[i].connected - 0;
-        }
-    } 
+    }
 }
 
 const GamepadState *xinput_get_gamepad(int index) {

@@ -65,6 +65,18 @@ void renderController(ConsoleScreen *screen, const GamepadState *state) {
 
     sprintf(tempBuffer, "RT/RZ: %+0.3f", state->axes[INPUT_AXIS_RT]);
     toBuffer(screen, 0, 15, tempBuffer);
+
+    sprintf(tempBuffer, "A: %-8s", (state->buttons & BTN_A) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 17, tempBuffer);
+
+    sprintf(tempBuffer, "B: %-8s", (state->buttons & BTN_B) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 18, tempBuffer);
+
+    sprintf(tempBuffer, "X: %-8s", (state->buttons & BTN_X) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 19, tempBuffer);
+
+    sprintf(tempBuffer, "Y: %-8s", (state->buttons & BTN_Y) ? "Pressed" : "Released");
+    toBuffer(screen, 0, 20, tempBuffer);
 }
 
 void flushBuffer(ConsoleScreen *screen) {

@@ -15,24 +15,24 @@ typedef enum {
 } InputAxis;
 
 typedef enum {
-    INPUT_BTN_A,
-    INPUT_BTN_B,
-    INPUT_BTN_X,
-    INPUT_BTN_Y,
-    INPUT_BTN_BACK,
-    INPUT_BTN_START,
-    INPUT_BTN_LB,
-    INPUT_BTN_RB,
-    INPUT_BTN_LS,
-    INPUT_BTN_RS,
+    INPUT_BTN_A = 0,
+    INPUT_BTN_B = 1,
+    INPUT_BTN_X = 2,
+    INPUT_BTN_Y = 3,
+    INPUT_BTN_BACK = 4,
+    INPUT_BTN_START = 5,
+    INPUT_BTN_LB = 6,
+    INPUT_BTN_RB = 7,
+    INPUT_BTN_LS = 8,
+    INPUT_BTN_RS = 9,
     INPUT_BTN_COUNT
 } InputButton;
 
 typedef enum {
-    INPUT_DPAD_UP,
-    INPUT_DPAD_DOWN,
-    INPUT_DPAD_LEFT,
-    INPUT_DPAD_RIGHT
+    INPUT_DPAD_UP = 10,
+    INPUT_DPAD_DOWN = 11,
+    INPUT_DPAD_LEFT = 12,
+    INPUT_DPAD_RIGHT = 13
 } InputDpad;
 
 // right number is the assignment for when you map the buttons

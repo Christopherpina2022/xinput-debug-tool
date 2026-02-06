@@ -1,11 +1,14 @@
 #include <hidProfiles.h>
 
-static void clearMaps(HidRecord *dev) {
-    for (int i = 0; i < MAX_USAGES; i++) {
-        dev->axisMap[i] = -1;
-        dev->buttonMap[i] = -1;
-    }
-}
+// SDL axis index -> HID Generic Desktop usage
+static const uint16_t sdlAxisToHidUsage[] = {
+    HID_USAGE_X, // a0 -> X
+    HID_USAGE_Y, // a1 -> Y
+    HID_USAGE_Z, // a2 -> Z
+    HID_USAGE_RX, // a3 -> Rx
+    HID_USAGE_RY, // a4 -> Ry
+    HID_USAGE_RZ, // a5 -> Rz
+};
 
 InputButton parseButtonName(const char *s) {
     if (!strcmp(s, "a")) return INPUT_BTN_A;
@@ -60,42 +63,34 @@ void parse_vid_pid(const char *guid, uint16_t *vid, uint16_t *pid) {
 }
 
 void parseMappingToken(HidRecord *dev, const char *token) {
-    /* SDL tokens are written differently than USB usages ( USAGE: 0x53, 0x30, etc.) 
-    (SDL: "a:b0", "leftx:a1", "dpup:h0.1", etc.). This means for the convenience of
-    not having to map per controller ever manufactured, we will use the SDL naming convention
-    to map our buttons rather than by Usage.*/
     char logical[32], hid[32];
-    if (sscanf(token, "%31[^:]:%31s", logical, hid) != 2) return;
+    if (sscanf(token, "%31[^:]:%31s", logical, hid) != 2)
+        return;
 
-    // Determine the usage number (the number after b/a/h)
-    int usage = -1;
-    if (hid[0] == 'b' || hid[0] == 'a' || hid[0] == 'h') {
-        usage = atoi(hid + 1);
-        if (usage < 0 || usage >= MAX_USAGES) return;
-    } else {
-        return; // unknown usage type
+    // AXES
+    if (hid[0] == 'a') {
+        InputAxis ax = parseAxisName(logical);
+        int sdlAxis = atoi(hid + 1);
+        if (sdlAxis < 0 || sdlAxis >= (int)(sizeof(sdlAxisToHidUsage)/sizeof(sdlAxisToHidUsage[0])))
+            return;
+
+        AxisMapping *m = &dev->axes[dev->axisCount++];
+        m->mappedEnum = ax;
+        m->usage      = sdlAxisToHidUsage[sdlAxis];
+        m->capIndex   = -1; // resolved later
     }
 
-    // Map the logical name to the appropriate enum and store in dev
-    InputButton b = parseButtonName(logical);
-    if (b != MAP_UNUSED) {
-        dev->buttonMap[usage] = b;
-        return;
-    }
+    // BUTTONS
+    if (hid[0] == 'b') {
+        InputButton btn = parseButtonName(logical);
+        if (btn == MAP_UNUSED) return;
 
-    InputAxis ax = parseAxisName(logical);
-    if (ax != MAP_UNUSED) {
-        dev->axisMap[usage] = ax;
-        return;
-    }
-
-    InputDpad d = parseDpadName(logical);
-    if (d != MAP_UNUSED) {
-        dev->dpadMap[usage] = d;
-        return;
+        ButtonMapping *m = &dev->buttons[dev->buttonCount++];
+        m->mappedEnum  = btn;
+        m->buttonIndex = atoi(hid + 1); // b0 -> 0, b1 -> 1
+        m->usage       = 0;             // resolved later
     }
 }
-
 
 void readLines(FILE *fp, HidRecord *dev) {
     /* Not very optimal, but it is a plaintext file and i'd rather do
@@ -128,7 +123,14 @@ void readLines(FILE *fp, HidRecord *dev) {
 }
 
 void buildHIDMap(HidRecord *dev) {
-    clearMaps(dev);
+    dev->axisCount = 0;
+    dev->buttonCount = 0;
+    dev->dpadCount = 4;
+
+    dev->dpads[0] = (DpadMapping){ INPUT_DPAD_UP,    BTN_DPAD_UP };
+    dev->dpads[1] = (DpadMapping){ INPUT_DPAD_DOWN,  BTN_DPAD_DOWN };
+    dev->dpads[2] = (DpadMapping){ INPUT_DPAD_LEFT,  BTN_DPAD_LEFT };
+    dev->dpads[3] = (DpadMapping){ INPUT_DPAD_RIGHT, BTN_DPAD_RIGHT };
     // Load the game controller DB file provided by SDL
     FILE *fp = fopen("gamecontrollerdb.txt", "r");
     if (!fp) return;

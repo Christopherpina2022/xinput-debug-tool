@@ -9,18 +9,46 @@
 #define HID_MAP_UNUSED -1
 #define DEADZONE 0.15f
 
+typedef struct {
+    int mappedEnum;   // INPUT_AXIS_LEFT_X, INPUT_AXIS_RT, etc
+    int axisIndex;    // SDL / logical axis index (0,1,2,…)
+    USHORT usage;     // RawInput usage for this axis (from DB)
+    int capIndex;     // Assigned after devReg
+} AxisMapping;
+
+typedef struct {
+    int mappedEnum;   // INPUT_BTN_A, INPUT_BTN_B, etc
+    int buttonIndex;  // DB index (b0, b1, …) — semantic only
+    USHORT usage;     // HID usage (Button Page, resolved in devReg)
+} ButtonMapping;
+
+typedef struct {
+    InputDpad mappedEnum; // INPUT_DPAD_UP, etc
+    uint32_t  bit;        // BTN_DPAD_UP, etc
+} DpadMapping;
+
+
 // Creates a device record that we call once per device. caps are short for capabilities.
 typedef struct {
-    // input mapping
-    int buttonMap[MAX_USAGES];
-    int dpadMap[MAX_USAGES];
-    int axisMap[MAX_USAGES];
+    // Buttons
+    ButtonMapping buttons[MAX_USAGES];
+    int buttonCount;
 
-    // identity
+    // Axes
+    AxisMapping axes[MAX_USAGES];
+    int axisCapIndex[MAX_USAGES];
+    int axisCount;
+
+    // DPAD
+    DpadMapping dpads[4];     // fixed 4 directions
+    int dpadCount;
+    int hatCapIndex;
+
+    // Useful for the hidProfile Lookup
     uint16_t vendorID;
     uint16_t productID;
 
-    // HID info that is useful for us
+    // HID info
     HANDLE device;
     PHIDP_PREPARSED_DATA preparsed;
     HIDP_CAPS caps;
@@ -29,7 +57,6 @@ typedef struct {
     HIDP_VALUE_CAPS *valueCaps;
     USHORT valueCapCount;
 
-    // Output
     GamepadState *state;
 } HidRecord;
 
